@@ -121,7 +121,10 @@ def main(args):
 
         cur_video_vis_folder = f"{image_folder}_output"
         os.makedirs(cur_video_vis_folder, exist_ok=True)
+
         cur_video_param_and_pred = {}
+        cur_video_param_dicts = []
+        cur_video_pred_dicts = []
 
         for frame_i, batch in enumerate(tqdm(testdata, dynamic_ncols=True)):
             util.move_dict_to_device(batch, device)
@@ -199,8 +202,21 @@ def main(args):
             #             os.path.join(savefolder, name, f"{name}_{vis_name}.jpg"), util.tensor2image(visdict[vis_name][0])
             #         )
             codedict["bbox"] = batch["bbox"]
-            cur_video_param_and_pred[f"{frame_i:04d}_param"] = codedict
-            cur_video_param_and_pred[f"{frame_i:04d}_pred"] = opdict
+            # cur_video_param_and_pred[f"{frame_i:04d}_param"] = codedict
+            # cur_video_param_and_pred[f"{frame_i:04d}_pred"] = opdict
+            for k, v in codedict.items():
+                if k not in cur_video_param_dicts:
+                    cur_video_param_dicts[k] = []
+                if torch.is_tensor(v):
+                    v = v[0].detach().cpu().numpy()
+                cur_video_param_dicts[k].append(v)
+
+            for k, v in opdict.items():
+                if k not in cur_video_pred_dicts:
+                    cur_video_pred_dicts[k] = []
+                if torch.is_tensor(v):
+                    v = v[0].detach().cpu().numpy()
+                cur_video_pred_dicts[k].append(v)
 
         if args.saveVis:
             save_name = f"{video_name}.mp4"
@@ -211,6 +227,12 @@ def main(args):
             shutil.rmtree(cur_video_vis_folder)
 
         shutil.rmtree(image_folder)
+
+        for k, v in cur_video_param_dicts.items():
+            cur_video_param_and_pred[k] = np.stack(v, axis=0)
+
+        for k, v in cur_video_pred_dicts.items():
+            cur_video_param_and_pred[k] = np.stack(v, axis=0)
 
         os.makedirs(os.path.join(args.savefolder, "pixie_outs"), exist_ok=True)
         util.save_pkl(
@@ -290,7 +312,7 @@ if __name__ == "__main__":
     # save
     parser.add_argument(
         "--saveVis",
-        default=True,
+        default=False,
         type=lambda x: x.lower() in ["true", "1"],
         help="whether to save visualization of output",
     )

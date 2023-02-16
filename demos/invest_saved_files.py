@@ -23,3 +23,7 @@ for k, v in prediction_dict.items():
 
 print("smplx_kpt3d", prediction_dict["smplx_kpt3d"][0])
 print("joints", prediction_dict["joints"][0])
+keys1 = prediction_dict.keys()
+kyes2 = param_dict.keys()
+intersect = keys1 & kyes2
+print(intersect)
