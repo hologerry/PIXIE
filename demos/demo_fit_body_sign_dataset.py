@@ -115,7 +115,7 @@ def main(args):
     num_total_gpus = args.gpu_num * args.job_num
     cur_job_gpu_split_meta_dicts = cur_split_meta_dicts[cur_job_gpu_idx::num_total_gpus]
 
-    for vid_dict in cur_job_gpu_split_meta_dicts:
+    for vid_dict in tqdm(cur_job_gpu_split_meta_dicts):
         video_name, image_folder = prepare_image_folder(args, vid_dict)
         testdata = TestData(image_folder, iscrop=args.iscrop, body_detector="rcnn")
 
@@ -126,7 +126,7 @@ def main(args):
         cur_video_param_dicts = {}
         cur_video_pred_dicts = {}
 
-        for frame_i, batch in enumerate(tqdm(testdata, dynamic_ncols=True)):
+        for frame_i, batch in enumerate(testdata):
             util.move_dict_to_device(batch, device)
             batch["image"] = batch["image"].unsqueeze(0)
             batch["image_hd"] = batch["image_hd"].unsqueeze(0)
