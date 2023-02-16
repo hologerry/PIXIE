@@ -123,8 +123,8 @@ def main(args):
         os.makedirs(cur_video_vis_folder, exist_ok=True)
 
         cur_video_param_and_pred = {}
-        cur_video_param_dicts = []
-        cur_video_pred_dicts = []
+        cur_video_param_dicts = {}
+        cur_video_pred_dicts = {}
 
         for frame_i, batch in enumerate(tqdm(testdata, dynamic_ncols=True)):
             util.move_dict_to_device(batch, device)
