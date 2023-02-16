@@ -1,5 +1,7 @@
 from copy import deepcopy
 
+
+# fmt: off
 __all__ = [
     'KEYPOINT_PARTS',
     'KEYPOINT_CONNECTIONS',
@@ -1399,33 +1401,35 @@ target_names for SMPLX:
 '''
 extra_names = ['head_top', 'left_big_toe', 'left_ear', 'left_eye', 'left_heel', 'left_index', 'left_middle', 'left_pinky', 'left_ring', 'left_small_toe', 'left_thumb', 'nose', 'right_big_toe', 'right_ear', 'right_eye', 'right_heel', 'right_index', 'right_middle', 'right_pinky', 'right_ring', 'right_small_toe', 'right_thumb']
 KEYPOINT_NAMES_DICT['smplx'] += extra_names
+
+# fmt: on
 import numpy as np
 import torch
-def map_keypoints(keypoints, conf, source_names, target_names = 'smplx',
-                  dim=2):
-        ''' Maps the keypoints from the source to a target dataset format
-        '''
-        source_dataset = source_names
-        target_dataset = target_names
-        names_dict = KEYPOINT_NAMES_DICT
-        
-        mapping = {}
-        source_names = names_dict.get(source_dataset)
-        target_names = names_dict.get(target_dataset)
 
-        for idx, name in enumerate(target_names):
-            if name in source_names:
-                mapping[idx] = source_names.index(name)
-        indices_in_target = np.array(list(mapping.keys()), dtype=np.long)
-        indices_in_source = np.array(list(mapping.values()), dtype=np.long)
-        target_dim = len(target_names)
 
-        dtype = keypoints.dtype
-        output_keypoints = torch.zeros([target_dim, dim], dtype=dtype)
-        output_conf = torch.zeros([target_dim], dtype=conf.dtype)
-        output_keypoints[indices_in_target] = keypoints[indices_in_source]
-        # import ipdb; ipdb.set_trace()
-        output_conf[indices_in_target] = conf[indices_in_source]
-        output_conf = output_conf.view(-1, 1)
-        output_keypoints = torch.cat([output_keypoints, output_conf], dim=-1)
-        return output_keypoints
+def map_keypoints(keypoints, conf, source_names, target_names="smplx", dim=2):
+    """Maps the keypoints from the source to a target dataset format"""
+    source_dataset = source_names
+    target_dataset = target_names
+    names_dict = KEYPOINT_NAMES_DICT
+
+    mapping = {}
+    source_names = names_dict.get(source_dataset)
+    target_names = names_dict.get(target_dataset)
+
+    for idx, name in enumerate(target_names):
+        if name in source_names:
+            mapping[idx] = source_names.index(name)
+    indices_in_target = np.array(list(mapping.keys()), dtype=np.long)
+    indices_in_source = np.array(list(mapping.values()), dtype=np.long)
+    target_dim = len(target_names)
+
+    dtype = keypoints.dtype
+    output_keypoints = torch.zeros([target_dim, dim], dtype=dtype)
+    output_conf = torch.zeros([target_dim], dtype=conf.dtype)
+    output_keypoints[indices_in_target] = keypoints[indices_in_source]
+    # import ipdb; ipdb.set_trace()
+    output_conf[indices_in_target] = conf[indices_in_source]
+    output_conf = output_conf.view(-1, 1)
+    output_keypoints = torch.cat([output_keypoints, output_conf], dim=-1)
+    return output_keypoints

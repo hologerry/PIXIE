@@ -3,17 +3,28 @@ original from https://github.com/vchoutas/smplx
 modified by Vassilis and Yao
 """
 
+import os
+import pickle
+
+import numpy as np
 import torch
 import torch.nn as nn
-import numpy as np
-import pickle
 import torch.nn.functional as F
-import os
 import yaml
 
-from .lbs import Struct, to_tensor, to_np, lbs, vertices2landmarks, JointsFromVerticesSelector, find_dynamic_lmk_idx_and_bcoords
+from .lbs import (
+    JointsFromVerticesSelector,
+    Struct,
+    find_dynamic_lmk_idx_and_bcoords,
+    lbs,
+    to_np,
+    to_tensor,
+    vertices2landmarks,
+)
 
-## SMPLX 
+
+# fmt: off
+# SMPLX
 J14_NAMES = [
     'right_ankle',
     'right_knee',
@@ -72,10 +83,10 @@ part_indices['left_hand'] = np.array([ 20,  25,  26,  27,  28,  29,  30,  31,  3
                         37,  38,  39, 128, 129, 130, 131, 133])
 part_indices['right_hand'] = np.array([ 21,  40,  41,  42,  43,  44,  45,  46,  47,  48,  49,  50,  51,
                         52,  53,  54, 139, 140, 141, 142, 144])
-# kinematic tree 
+# kinematic tree
 head_kin_chain = [15,12,9,6,3,0]
-
-#--smplx joints
+# fmt: on
+# --smplx joints
 # 00 - Global
 # 01 - L_Thigh
 # 02 - R_Thigh
@@ -102,11 +113,13 @@ head_kin_chain = [15,12,9,6,3,0]
 # 23 - L_Eye
 # 24 - R_Eye
 
+
 class SMPLX(nn.Module):
     """
     Given smplx parameters, this class generates a differentiable SMPLX function
     which outputs a mesh and 3D joints
     """
+
     def __init__(self, config):
         super(SMPLX, self).__init__()
         print("creating the SMPLX Decoder")
@@ -114,52 +127,80 @@ class SMPLX(nn.Module):
         smplx_model = Struct(**ss)
 
         self.dtype = torch.float32
-        self.register_buffer('faces_tensor', to_tensor(to_np(smplx_model.f, dtype=np.int64), dtype=torch.long))
+        self.register_buffer("faces_tensor", to_tensor(to_np(smplx_model.f, dtype=np.int64), dtype=torch.long))
         # The vertices of the template model
-        self.register_buffer('v_template', to_tensor(to_np(smplx_model.v_template), dtype=self.dtype))
+        self.register_buffer("v_template", to_tensor(to_np(smplx_model.v_template), dtype=self.dtype))
         # The shape components and expression
         # expression space is the same as FLAME
         shapedirs = to_tensor(to_np(smplx_model.shapedirs), dtype=self.dtype)
-        shapedirs = torch.cat([shapedirs[:,:,:config.n_shape], shapedirs[:,:,300:300+config.n_exp]], 2)
-        self.register_buffer('shapedirs', shapedirs)
+        shapedirs = torch.cat([shapedirs[:, :, : config.n_shape], shapedirs[:, :, 300 : 300 + config.n_exp]], 2)
+        self.register_buffer("shapedirs", shapedirs)
         # The pose components
         num_pose_basis = smplx_model.posedirs.shape[-1]
         posedirs = np.reshape(smplx_model.posedirs, [-1, num_pose_basis]).T
-        self.register_buffer('posedirs', to_tensor(to_np(posedirs), dtype=self.dtype)) 
-        self.register_buffer('J_regressor', to_tensor(to_np(smplx_model.J_regressor), dtype=self.dtype))
-        parents = to_tensor(to_np(smplx_model.kintree_table[0])).long(); parents[0] = -1
-        self.register_buffer('parents', parents)
-        self.register_buffer('lbs_weights', to_tensor(to_np(smplx_model.weights), dtype=self.dtype))
+        self.register_buffer("posedirs", to_tensor(to_np(posedirs), dtype=self.dtype))
+        self.register_buffer("J_regressor", to_tensor(to_np(smplx_model.J_regressor), dtype=self.dtype))
+        parents = to_tensor(to_np(smplx_model.kintree_table[0])).long()
+        parents[0] = -1
+        self.register_buffer("parents", parents)
+        self.register_buffer("lbs_weights", to_tensor(to_np(smplx_model.weights), dtype=self.dtype))
         # for face keypoints
-        self.register_buffer('lmk_faces_idx', torch.tensor(smplx_model.lmk_faces_idx, dtype=torch.long))
-        self.register_buffer('lmk_bary_coords', torch.tensor(smplx_model.lmk_bary_coords, dtype=self.dtype))
-        self.register_buffer('dynamic_lmk_faces_idx', torch.tensor(smplx_model.dynamic_lmk_faces_idx, dtype=torch.long))
-        self.register_buffer('dynamic_lmk_bary_coords', torch.tensor(smplx_model.dynamic_lmk_bary_coords, dtype=self.dtype))
+        self.register_buffer("lmk_faces_idx", torch.tensor(smplx_model.lmk_faces_idx, dtype=torch.long))
+        self.register_buffer("lmk_bary_coords", torch.tensor(smplx_model.lmk_bary_coords, dtype=self.dtype))
+        self.register_buffer(
+            "dynamic_lmk_faces_idx", torch.tensor(smplx_model.dynamic_lmk_faces_idx, dtype=torch.long)
+        )
+        self.register_buffer(
+            "dynamic_lmk_bary_coords", torch.tensor(smplx_model.dynamic_lmk_bary_coords, dtype=self.dtype)
+        )
         # pelvis to head, to calculate head yaw angle, then find the dynamic landmarks
-        self.register_buffer('head_kin_chain', torch.tensor(head_kin_chain, dtype=torch.long))
+        self.register_buffer("head_kin_chain", torch.tensor(head_kin_chain, dtype=torch.long))
 
-        #-- initialize parameters 
+        # -- initialize parameters
         # shape and expression
-        self.register_buffer('shape_params', nn.Parameter(torch.zeros([1, config.n_shape], dtype=self.dtype), requires_grad=False))
-        self.register_buffer('expression_params', nn.Parameter(torch.zeros([1, config.n_exp], dtype=self.dtype), requires_grad=False))
-        # pose: represented as rotation matrx [number of joints, 3, 3]
-        self.register_buffer('global_pose', nn.Parameter(torch.eye(3, dtype=self.dtype).unsqueeze(0).repeat(1,1,1), requires_grad=False))
-        self.register_buffer('head_pose', nn.Parameter(torch.eye(3, dtype=self.dtype).unsqueeze(0).repeat(1,1,1), requires_grad=False))
-        self.register_buffer('neck_pose', nn.Parameter(torch.eye(3, dtype=self.dtype).unsqueeze(0).repeat(1,1,1), requires_grad=False))
-        self.register_buffer('jaw_pose', nn.Parameter(torch.eye(3, dtype=self.dtype).unsqueeze(0).repeat(1,1,1), requires_grad=False))
-        self.register_buffer('eye_pose', nn.Parameter(torch.eye(3, dtype=self.dtype).unsqueeze(0).repeat(2,1,1), requires_grad=False))
-        self.register_buffer('body_pose', nn.Parameter(torch.eye(3, dtype=self.dtype).unsqueeze(0).repeat(21,1,1), requires_grad=False))
-        self.register_buffer('left_hand_pose', nn.Parameter(torch.eye(3, dtype=self.dtype).unsqueeze(0).repeat(15,1,1), requires_grad=False))
-        self.register_buffer('right_hand_pose', nn.Parameter(torch.eye(3, dtype=self.dtype).unsqueeze(0).repeat(15,1,1), requires_grad=False))
+        self.register_buffer(
+            "shape_params", nn.Parameter(torch.zeros([1, config.n_shape], dtype=self.dtype), requires_grad=False)
+        )
+        self.register_buffer(
+            "expression_params", nn.Parameter(torch.zeros([1, config.n_exp], dtype=self.dtype), requires_grad=False)
+        )
+        # pose: represented as rotation matrix [number of joints, 3, 3]
+        self.register_buffer(
+            "global_pose",
+            nn.Parameter(torch.eye(3, dtype=self.dtype).unsqueeze(0).repeat(1, 1, 1), requires_grad=False),
+        )
+        self.register_buffer(
+            "head_pose", nn.Parameter(torch.eye(3, dtype=self.dtype).unsqueeze(0).repeat(1, 1, 1), requires_grad=False)
+        )
+        self.register_buffer(
+            "neck_pose", nn.Parameter(torch.eye(3, dtype=self.dtype).unsqueeze(0).repeat(1, 1, 1), requires_grad=False)
+        )
+        self.register_buffer(
+            "jaw_pose", nn.Parameter(torch.eye(3, dtype=self.dtype).unsqueeze(0).repeat(1, 1, 1), requires_grad=False)
+        )
+        self.register_buffer(
+            "eye_pose", nn.Parameter(torch.eye(3, dtype=self.dtype).unsqueeze(0).repeat(2, 1, 1), requires_grad=False)
+        )
+        self.register_buffer(
+            "body_pose",
+            nn.Parameter(torch.eye(3, dtype=self.dtype).unsqueeze(0).repeat(21, 1, 1), requires_grad=False),
+        )
+        self.register_buffer(
+            "left_hand_pose",
+            nn.Parameter(torch.eye(3, dtype=self.dtype).unsqueeze(0).repeat(15, 1, 1), requires_grad=False),
+        )
+        self.register_buffer(
+            "right_hand_pose",
+            nn.Parameter(torch.eye(3, dtype=self.dtype).unsqueeze(0).repeat(15, 1, 1), requires_grad=False),
+        )
 
         if config.extra_joint_path:
-            self.extra_joint_selector = JointsFromVerticesSelector(
-                fname=config.extra_joint_path)
+            self.extra_joint_selector = JointsFromVerticesSelector(fname=config.extra_joint_path)
         self.use_joint_regressor = True
         self.keypoint_names = SMPLX_names
         if self.use_joint_regressor:
-            with open(config.j14_regressor_path, 'rb') as f:
-                j14_regressor = pickle.load(f, encoding='latin1')
+            with open(config.j14_regressor_path, "rb") as f:
+                j14_regressor = pickle.load(f, encoding="latin1")
             source = []
             target = []
             for idx, name in enumerate(self.keypoint_names):
@@ -168,31 +209,37 @@ class SMPLX(nn.Module):
                     target.append(J14_NAMES.index(name))
             source = np.asarray(source)
             target = np.asarray(target)
-            self.register_buffer('source_idxs', torch.from_numpy(source))
-            self.register_buffer('target_idxs', torch.from_numpy(target))
-            joint_regressor = torch.from_numpy(
-                j14_regressor).to(dtype=torch.float32)
-            self.register_buffer('extra_joint_regressor', joint_regressor)
+            self.register_buffer("source_idxs", torch.from_numpy(source))
+            self.register_buffer("target_idxs", torch.from_numpy(target))
+            joint_regressor = torch.from_numpy(j14_regressor).to(dtype=torch.float32)
+            self.register_buffer("extra_joint_regressor", joint_regressor)
             self.part_indices = part_indices
 
-    def forward(self, shape_params=None, expression_params=None,
-                    global_pose=None, body_pose=None,
-                    jaw_pose=None, eye_pose=None,
-                    left_hand_pose=None, right_hand_pose=None):
+    def forward(
+        self,
+        shape_params=None,
+        expression_params=None,
+        global_pose=None,
+        body_pose=None,
+        jaw_pose=None,
+        eye_pose=None,
+        left_hand_pose=None,
+        right_hand_pose=None,
+    ):
         """
-            Args:
-                shape_params: [N, number of shape parameters]
-                expression_params: [N, number of expression parameters]
-                global_pose: pelvis pose, [N, 1, 3, 3]
-                body_pose: [N, 21, 3, 3]
-                jaw_pose: [N, 1, 3, 3]
-                eye_pose: [N, 2, 3, 3]
-                left_hand_pose: [N, 15, 3, 3]
-                right_hand_pose: [N, 15, 3, 3]
-            Returns:
-                vertices: [N, number of vertices, 3]
-                landmarks: [N, number of landmarks (68 face keypoints), 3]
-                joints: [N, number of smplx joints (145), 3]
+        Args:
+            shape_params: [N, number of shape parameters]
+            expression_params: [N, number of expression parameters]
+            global_pose: pelvis pose, [N, 1, 3, 3]
+            body_pose: [N, 21, 3, 3]
+            jaw_pose: [N, 1, 3, 3]
+            eye_pose: [N, 2, 3, 3]
+            left_hand_pose: [N, 15, 3, 3]
+            right_hand_pose: [N, 15, 3, 3]
+        Returns:
+            vertices: [N, number of vertices, 3]
+            landmarks: [N, number of landmarks (68 face keypoints), 3]
+            joints: [N, number of smplx joints (145), 3]
         """
         if shape_params is None:
             batch_size = global_pose.shape[0]
@@ -215,79 +262,73 @@ class SMPLX(nn.Module):
             right_hand_pose = self.right_hand_pose.unsqueeze(0).expand(batch_size, -1, -1, -1)
 
         shape_components = torch.cat([shape_params, expression_params], dim=1)
-        full_pose = torch.cat([global_pose, body_pose,
-                                jaw_pose, eye_pose,
-                                left_hand_pose, right_hand_pose], dim=1)
+        full_pose = torch.cat([global_pose, body_pose, jaw_pose, eye_pose, left_hand_pose, right_hand_pose], dim=1)
         template_vertices = self.v_template.unsqueeze(0).expand(batch_size, -1, -1)
         # smplx
-        vertices, joints = lbs(shape_components, full_pose, template_vertices,
-                          self.shapedirs, self.posedirs,
-                          self.J_regressor, self.parents,
-                          self.lbs_weights, dtype=self.dtype,
-                          pose2rot = False)
+        vertices, joints = lbs(
+            shape_components,
+            full_pose,
+            template_vertices,
+            self.shapedirs,
+            self.posedirs,
+            self.J_regressor,
+            self.parents,
+            self.lbs_weights,
+            dtype=self.dtype,
+            pose2rot=False,
+        )
         # face dynamic landmarks
         lmk_faces_idx = self.lmk_faces_idx.unsqueeze(dim=0).expand(batch_size, -1)
         lmk_bary_coords = self.lmk_bary_coords.unsqueeze(dim=0).expand(batch_size, -1, -1)
-        dyn_lmk_faces_idx, dyn_lmk_bary_coords = (
-                find_dynamic_lmk_idx_and_bcoords(
-                    vertices, full_pose,
-                    self.dynamic_lmk_faces_idx,
-                    self.dynamic_lmk_bary_coords,
-                    self.head_kin_chain)
-            )
+        dyn_lmk_faces_idx, dyn_lmk_bary_coords = find_dynamic_lmk_idx_and_bcoords(
+            vertices, full_pose, self.dynamic_lmk_faces_idx, self.dynamic_lmk_bary_coords, self.head_kin_chain
+        )
         lmk_faces_idx = torch.cat([lmk_faces_idx, dyn_lmk_faces_idx], 1)
         lmk_bary_coords = torch.cat([lmk_bary_coords, dyn_lmk_bary_coords], 1)
-        landmarks = vertices2landmarks(vertices, self.faces_tensor,
-                                       lmk_faces_idx,
-                                       lmk_bary_coords)
-        
+        landmarks = vertices2landmarks(vertices, self.faces_tensor, lmk_faces_idx, lmk_bary_coords)
+
         final_joint_set = [joints, landmarks]
-        if hasattr(self, 'extra_joint_selector'):
+        if hasattr(self, "extra_joint_selector"):
             # Add any extra joints that might be needed
             extra_joints = self.extra_joint_selector(vertices, self.faces_tensor)
             final_joint_set.append(extra_joints)
         # Create the final joint set
         joints = torch.cat(final_joint_set, dim=1)
         if self.use_joint_regressor:
-            reg_joints = torch.einsum(
-                'ji,bik->bjk', self.extra_joint_regressor, vertices)
+            reg_joints = torch.einsum("ji,bik->bjk", self.extra_joint_regressor, vertices)
             joints[:, self.source_idxs] = (
-                joints[:, self.source_idxs].detach() * 0.0 +
-                reg_joints[:, self.target_idxs] * 1.0
+                joints[:, self.source_idxs].detach() * 0.0 + reg_joints[:, self.target_idxs] * 1.0
             )
         return vertices, landmarks, joints
-        
-    def pose_abs2rel(self, global_pose, body_pose, abs_joint = 'head'):
-        ''' change absolute pose to relative pose
+
+    def pose_abs2rel(self, global_pose, body_pose, abs_joint="head"):
+        """change absolute pose to relative pose
         Basic knowledge for SMPLX kinematic tree:
                 absolute pose = parent pose * relative pose
         Here, pose must be represented as rotation matrix (batch_sizexnx3x3)
-        '''
-        if abs_joint == 'head':
+        """
+        if abs_joint == "head":
             # Pelvis -> Spine 1, 2, 3 -> Neck -> Head
             kin_chain = [15, 12, 9, 6, 3, 0]
-        elif abs_joint == 'neck':
+        elif abs_joint == "neck":
             # Pelvis -> Spine 1, 2, 3 -> Neck -> Head
             kin_chain = [12, 9, 6, 3, 0]
-        elif abs_joint == 'right_wrist':
+        elif abs_joint == "right_wrist":
             # Pelvis -> Spine 1, 2, 3 -> right Collar -> right shoulder
             # -> right elbow -> right wrist
             kin_chain = [21, 19, 17, 14, 9, 6, 3, 0]
-        elif abs_joint == 'left_wrist':
+        elif abs_joint == "left_wrist":
             # Pelvis -> Spine 1, 2, 3 -> Left Collar -> Left shoulder
             # -> Left elbow -> Left wrist
             kin_chain = [20, 18, 16, 13, 9, 6, 3, 0]
         else:
-            raise NotImplementedError(
-                f'pose_abs2rel does not support: {abs_joint}')
+            raise NotImplementedError(f"pose_abs2rel does not support: {abs_joint}")
 
         batch_size = global_pose.shape[0]
         dtype = global_pose.dtype
         device = global_pose.device
         full_pose = torch.cat([global_pose, body_pose], dim=1)
-        rel_rot_mat = torch.eye(
-            3, device=device,
-            dtype=dtype).unsqueeze_(dim=0).repeat(batch_size, 1, 1)
+        rel_rot_mat = torch.eye(3, device=device, dtype=dtype).unsqueeze_(dim=0).repeat(batch_size, 1, 1)
         for idx in kin_chain[1:]:
             rel_rot_mat = torch.bmm(full_pose[:, idx], rel_rot_mat)
 
@@ -297,40 +338,38 @@ class SMPLX(nn.Module):
         abs_joint_pose = body_pose[:, kin_chain[0] - 1]
         # abs_head = parents(abs_neck) * rel_head ==> rel_head = abs_neck.T * abs_head
         rel_joint_pose = torch.matmul(
-            abs_parent_pose.reshape(-1, 3, 3).transpose(1, 2),
-            abs_joint_pose.reshape(-1, 3, 3))
+            abs_parent_pose.reshape(-1, 3, 3).transpose(1, 2), abs_joint_pose.reshape(-1, 3, 3)
+        )
         # Replace the new relative pose
         body_pose[:, kin_chain[0] - 1, :, :] = rel_joint_pose
         return body_pose
 
-    def pose_rel2abs(self, global_pose, body_pose, abs_joint = 'head'):
-        ''' change relative pose to absolute pose
+    def pose_rel2abs(self, global_pose, body_pose, abs_joint="head"):
+        """change relative pose to absolute pose
         Basic knowledge for SMPLX kinematic tree:
                 absolute pose = parent pose * relative pose
         Here, pose must be represented as rotation matrix (batch_sizexnx3x3)
-        '''
+        """
         full_pose = torch.cat([global_pose, body_pose], dim=1)
 
-        if abs_joint == 'head':
+        if abs_joint == "head":
             # Pelvis -> Spine 1, 2, 3 -> Neck -> Head
             kin_chain = [15, 12, 9, 6, 3, 0]
-        elif abs_joint == 'neck':
+        elif abs_joint == "neck":
             # Pelvis -> Spine 1, 2, 3 -> Neck -> Head
             kin_chain = [12, 9, 6, 3, 0]
-        elif abs_joint == 'right_wrist':
+        elif abs_joint == "right_wrist":
             # Pelvis -> Spine 1, 2, 3 -> right Collar -> right shoulder
             # -> right elbow -> right wrist
             kin_chain = [21, 19, 17, 14, 9, 6, 3, 0]
-        elif abs_joint == 'left_wrist':
+        elif abs_joint == "left_wrist":
             # Pelvis -> Spine 1, 2, 3 -> Left Collar -> Left shoulder
             # -> Left elbow -> Left wrist
             kin_chain = [20, 18, 16, 13, 9, 6, 3, 0]
         else:
-            raise NotImplementedError(
-                f'pose_rel2abs does not support: {abs_joint}')
-        rel_rot_mat = torch.eye(3, device=full_pose.device,
-                                dtype=full_pose.dtype).unsqueeze_(dim=0)
+            raise NotImplementedError(f"pose_rel2abs does not support: {abs_joint}")
+        rel_rot_mat = torch.eye(3, device=full_pose.device, dtype=full_pose.dtype).unsqueeze_(dim=0)
         for idx in kin_chain:
             rel_rot_mat = torch.matmul(full_pose[:, idx], rel_rot_mat)
-        abs_pose = rel_rot_mat[:,None,:,:]
+        abs_pose = rel_rot_mat[:, None, :, :]
         return abs_pose

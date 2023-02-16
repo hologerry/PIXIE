@@ -44,8 +44,12 @@ def main(args):
         # if given deca code path, run deca to get face details, here init deca model
         sys.path.insert(0, args.deca_path)
         from decalib.deca import DECA  # type: ignore
+        from decalib.utils.config import cfg as deca_cfg  # type: ignore
 
-        deca = DECA(device=device)
+        deca_cfg.model.use_tex = args.useTex
+        deca_cfg.rasterizer_type = args.rasterizer_type
+        deca_cfg.model.extract_tex = args.extractTex
+        deca = DECA(config=deca_cfg, device=device)
         use_deca = True
     else:
         use_deca = False
@@ -129,14 +133,14 @@ if __name__ == "__main__":
     parser.add_argument(
         "-i",
         "--inputpath",
-        default="TestSamples/body",
+        default="TestSamples/sign",
         type=str,
         help="path to the test data, can be image folder, image path, image path list, video",
     )
     parser.add_argument(
         "-s",
         "--savefolder",
-        default="TestSamples/body/results",
+        default="TestSamples/sign/results",
         type=str,
         help="path to the output directory, where results(obj, txt files) will be stored.",
     )
@@ -151,7 +155,7 @@ if __name__ == "__main__":
     # rendering option
     parser.add_argument("--render_size", default=1024, type=int, help="image size of renderings")
     parser.add_argument(
-        "--rasterizer_type", default="standard", type=str, help="rasterizer type: pytorch3d or standard"
+        "--rasterizer_type", default="pytorch3d", type=str, help="rasterizer type: pytorch3d or standard"
     )
     parser.add_argument(
         "--reproject_mesh",
@@ -165,6 +169,7 @@ if __name__ == "__main__":
     # texture options
     parser.add_argument(
         "--deca_path",
+        # default="../DECA",
         default=None,
         type=str,
         help="absolute path of DECA folder, if exists, will return facial details by running DECA. \
@@ -172,14 +177,14 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "--useTex",
-        default=True,
+        default=False,
         type=lambda x: x.lower() in ["true", "1"],
         help="whether to use FLAME texture model to generate uv texture map, \
                             set it to True only if you downloaded texture model",
     )
     parser.add_argument(
         "--lightTex",
-        default=True,
+        default=False,
         type=lambda x: x.lower() in ["true", "1"],
         help="whether to return lit albedo: that add estimated SH lighting to albedo",
     )
@@ -223,13 +228,13 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "--saveParam",
-        default=False,
+        default=True,
         type=lambda x: x.lower() in ["true", "1"],
         help="whether to save parameters as pkl file",
     )
     parser.add_argument(
         "--savePred",
-        default=False,
+        default=True,
         type=lambda x: x.lower() in ["true", "1"],
         help="whether to save smplx prediction as pkl file",
     )
@@ -237,6 +242,6 @@ if __name__ == "__main__":
         "--saveImages",
         default=False,
         type=lambda x: x.lower() in ["true", "1"],
-        help="whether to save visualization output as seperate images",
+        help="whether to save visualization output as separate images",
     )
     main(parser.parse_args())

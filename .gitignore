@@ -56,5 +56,6 @@ results
 scripts
 data/*
 !data/*.png
-Testsamples/*/results
-
+TestSamples/*/results
+TestSamples/sign
+sign_results
