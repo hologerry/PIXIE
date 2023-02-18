@@ -117,6 +117,12 @@ def main(args):
 
     for vid_dict in tqdm(cur_job_gpu_split_meta_dicts):
         video_name, image_folder = prepare_image_folder(args, vid_dict)
+
+        output_pkl_file = os.path.join(args.savefolder, "pixie_outs", f"{video_name}_param_and_pred.pkl")
+        if os.path.exists(output_pkl_file):
+            print(f"skipping {video_name}")
+            continue
+
         testdata = TestData(image_folder, iscrop=args.iscrop, body_detector="rcnn")
 
         cur_video_vis_folder = f"{image_folder}_output"
@@ -130,8 +136,8 @@ def main(args):
             util.move_dict_to_device(batch, device)
             batch["image"] = batch["image"].unsqueeze(0)
             batch["image_hd"] = batch["image_hd"].unsqueeze(0)
-            name = batch["name"]
 
+            # name = batch["name"]
             # print(name)
             # frame_id = int(name.split('frame')[-1])
             # name = f'{frame_id:05}'
@@ -235,9 +241,7 @@ def main(args):
             cur_video_param_and_pred[k] = np.stack(v, axis=0)
 
         os.makedirs(os.path.join(args.savefolder, "pixie_outs"), exist_ok=True)
-        util.save_pkl(
-            os.path.join(args.savefolder, "pixie_outs", f"{video_name}_param_and_pred.pkl"), cur_video_param_and_pred
-        )
+        util.save_pkl(output_pkl_file, cur_video_param_and_pred)
 
     print(f"Finished! Please check the results in {savefolder}")
 
