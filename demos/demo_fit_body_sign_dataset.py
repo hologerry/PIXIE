@@ -123,125 +123,129 @@ def main(args):
             print(f"skipping {video_name}")
             continue
 
-        testdata = TestData(image_folder, iscrop=args.iscrop, body_detector="rcnn")
+        try:
+            testdata = TestData(image_folder, iscrop=args.iscrop, body_detector="rcnn")
 
-        cur_video_vis_folder = f"{image_folder}_output"
-        os.makedirs(cur_video_vis_folder, exist_ok=True)
+            cur_video_vis_folder = f"{image_folder}_output"
+            os.makedirs(cur_video_vis_folder, exist_ok=True)
 
-        cur_video_param_and_pred = {}
-        cur_video_param_dicts = {}
-        cur_video_pred_dicts = {}
+            cur_video_param_and_pred = {}
+            cur_video_param_dicts = {}
+            cur_video_pred_dicts = {}
 
-        for frame_i, batch in enumerate(testdata):
-            util.move_dict_to_device(batch, device)
-            batch["image"] = batch["image"].unsqueeze(0)
-            batch["image_hd"] = batch["image_hd"].unsqueeze(0)
+            for frame_i, batch in enumerate(testdata):
+                util.move_dict_to_device(batch, device)
+                batch["image"] = batch["image"].unsqueeze(0)
+                batch["image_hd"] = batch["image_hd"].unsqueeze(0)
 
-            # name = batch["name"]
-            # print(name)
-            # frame_id = int(name.split('frame')[-1])
-            # name = f'{frame_id:05}'
+                # name = batch["name"]
+                # print(name)
+                # frame_id = int(name.split('frame')[-1])
+                # name = f'{frame_id:05}'
 
-            data = {"body": batch}
-            param_dict = pixie.encode(data, threthold=True, keep_local=True, copy_and_paste=False)
-            # param_dict = pixie.encode(data, threthold=True, keep_local=True, copy_and_paste=True)
-            # only use body params to get smplx output. TODO: we can also show the results of cropped head/hands
-            moderator_weight = param_dict["moderator_weight"]
-            codedict = param_dict["body"]
-            opdict = pixie.decode(codedict, param_type="body")
-            opdict["albedo"] = visualizer.tex_flame2smplx(opdict["albedo"])
-            # if args.saveObj or args.saveParam or args.savePred or args.saveImages or args.deca_path is not None:
-            #     os.makedirs(os.path.join(savefolder, name), exist_ok=True)
-            # -- save results
-            # run deca if deca is available and moderator thinks information from face crops is reliable
-            # if args.deca_path is not None and param_dict["moderator_weight"]["head"][0, 1].item() > 0.6:
-            #     cropped_face_savepath = os.path.join(savefolder, name, f"{name}_facecrop.jpg")
-            #     cv2.imwrite(cropped_face_savepath, util.tensor2image(data["body"]["head_image"][0]))
-            #     _, deca_opdict, _ = deca.run(cropped_face_savepath)
-            #     flame_displacement_map = deca_opdict["displacement_map"]
-            #     opdict["displacement_map"] = visualizer.tex_flame2smplx(flame_displacement_map)
-            # if args.lightTex:
-            #     visualizer.light_albedo(opdict)
-            # if args.extractTex:
-            #     visualizer.extract_texture(opdict, data["body"]["image_hd"])
-            # if args.reproject_mesh and args.rasterizer_type == "standard":
-            #     ## whether to reproject mesh to original image space
-            #     tform = batch["tform"][None, ...]
-            #     tform = torch.inverse(tform).transpose(1, 2)
-            #     original_image = batch["original_image"][None, ...]
-            #     visualizer.recover_position(opdict, batch, tform, original_image)
+                data = {"body": batch}
+                param_dict = pixie.encode(data, threthold=True, keep_local=True, copy_and_paste=False)
+                # param_dict = pixie.encode(data, threthold=True, keep_local=True, copy_and_paste=True)
+                # only use body params to get smplx output. TODO: we can also show the results of cropped head/hands
+                moderator_weight = param_dict["moderator_weight"]
+                codedict = param_dict["body"]
+                opdict = pixie.decode(codedict, param_type="body")
+                opdict["albedo"] = visualizer.tex_flame2smplx(opdict["albedo"])
+                # if args.saveObj or args.saveParam or args.savePred or args.saveImages or args.deca_path is not None:
+                #     os.makedirs(os.path.join(savefolder, name), exist_ok=True)
+                # -- save results
+                # run deca if deca is available and moderator thinks information from face crops is reliable
+                # if args.deca_path is not None and param_dict["moderator_weight"]["head"][0, 1].item() > 0.6:
+                #     cropped_face_savepath = os.path.join(savefolder, name, f"{name}_facecrop.jpg")
+                #     cv2.imwrite(cropped_face_savepath, util.tensor2image(data["body"]["head_image"][0]))
+                #     _, deca_opdict, _ = deca.run(cropped_face_savepath)
+                #     flame_displacement_map = deca_opdict["displacement_map"]
+                #     opdict["displacement_map"] = visualizer.tex_flame2smplx(flame_displacement_map)
+                # if args.lightTex:
+                #     visualizer.light_albedo(opdict)
+                # if args.extractTex:
+                #     visualizer.extract_texture(opdict, data["body"]["image_hd"])
+                # if args.reproject_mesh and args.rasterizer_type == "standard":
+                #     ## whether to reproject mesh to original image space
+                #     tform = batch["tform"][None, ...]
+                #     tform = torch.inverse(tform).transpose(1, 2)
+                #     original_image = batch["original_image"][None, ...]
+                #     visualizer.recover_position(opdict, batch, tform, original_image)
+                if args.saveVis:
+                    if args.showWeight is False:
+                        moderator_weight = None
+                    visdict = visualizer.render_results(
+                        opdict,
+                        data["body"]["image_hd"],
+                        overlay=True,
+                        moderator_weight=moderator_weight,
+                        use_deca=use_deca,
+                    )
+                    # show cropped parts
+                    # if args.showParts:
+                    #     visdict["head"] = data["body"]["head_image"]
+                    #     visdict["left_hand"] = data["body"]["left_hand_image"]  # should be flipped
+                    #     visdict["right_hand"] = data["body"]["right_hand_image"]
+                    cv2.imwrite(
+                        os.path.join(cur_video_vis_folder, f"{frame_i:04d}_vis.jpg"),
+                        visualizer.visualize_grid(visdict, size=args.render_size),
+                    )
+                    # print(os.path.join(savefolder, f'{name}_vis.jpg'))
+                    # import ipdb; ipdb.set_trace()
+                    # exit()
+                # if args.saveGif:
+                #     visualizer.rotate_results(opdict, visdict=visdict, savepath=os.path.join(savefolder, f"{name}_vis.gif"))
+                # if args.saveObj:
+                #     visualizer.save_obj(os.path.join(savefolder, name, f"{name}.obj"), opdict)
+                # if args.saveParam:
+                #     codedict["bbox"] = batch["bbox"]
+                #     util.save_pkl(os.path.join(savefolder, name, f"{name}_param.pkl"), codedict)
+                #     np.savetxt(os.path.join(savefolder, name, f"{name}_bbox.txt"), batch["bbox"].squeeze())
+                # if args.savePred:
+                #     util.save_pkl(os.path.join(savefolder, name, f"{name}_prediction.pkl"), opdict)
+                # if args.saveImages:
+                #     for vis_name in visdict.keys():
+                #         cv2.imwrite(
+                #             os.path.join(savefolder, name, f"{name}_{vis_name}.jpg"), util.tensor2image(visdict[vis_name][0])
+                #         )
+                codedict["bbox"] = batch["bbox"]
+                # cur_video_param_and_pred[f"{frame_i:04d}_param"] = codedict
+                # cur_video_param_and_pred[f"{frame_i:04d}_pred"] = opdict
+                for k, v in codedict.items():
+                    if k not in cur_video_param_dicts:
+                        cur_video_param_dicts[k] = []
+                    if torch.is_tensor(v):
+                        v = v[0].detach().cpu().numpy()
+                    cur_video_param_dicts[k].append(v)
+
+                for k, v in opdict.items():
+                    if k not in cur_video_pred_dicts:
+                        cur_video_pred_dicts[k] = []
+                    if torch.is_tensor(v):
+                        v = v[0].detach().cpu().numpy()
+                    cur_video_pred_dicts[k].append(v)
+
             if args.saveVis:
-                if args.showWeight is False:
-                    moderator_weight = None
-                visdict = visualizer.render_results(
-                    opdict,
-                    data["body"]["image_hd"],
-                    overlay=True,
-                    moderator_weight=moderator_weight,
-                    use_deca=use_deca,
-                )
-                # show cropped parts
-                # if args.showParts:
-                #     visdict["head"] = data["body"]["head_image"]
-                #     visdict["left_hand"] = data["body"]["left_hand_image"]  # should be flipped
-                #     visdict["right_hand"] = data["body"]["right_hand_image"]
-                cv2.imwrite(
-                    os.path.join(cur_video_vis_folder, f"{frame_i:04d}_vis.jpg"),
-                    visualizer.visualize_grid(visdict, size=args.render_size),
-                )
-                # print(os.path.join(savefolder, f'{name}_vis.jpg'))
-                # import ipdb; ipdb.set_trace()
-                # exit()
-            # if args.saveGif:
-            #     visualizer.rotate_results(opdict, visdict=visdict, savepath=os.path.join(savefolder, f"{name}_vis.gif"))
-            # if args.saveObj:
-            #     visualizer.save_obj(os.path.join(savefolder, name, f"{name}.obj"), opdict)
-            # if args.saveParam:
-            #     codedict["bbox"] = batch["bbox"]
-            #     util.save_pkl(os.path.join(savefolder, name, f"{name}_param.pkl"), codedict)
-            #     np.savetxt(os.path.join(savefolder, name, f"{name}_bbox.txt"), batch["bbox"].squeeze())
-            # if args.savePred:
-            #     util.save_pkl(os.path.join(savefolder, name, f"{name}_prediction.pkl"), opdict)
-            # if args.saveImages:
-            #     for vis_name in visdict.keys():
-            #         cv2.imwrite(
-            #             os.path.join(savefolder, name, f"{name}_{vis_name}.jpg"), util.tensor2image(visdict[vis_name][0])
-            #         )
-            codedict["bbox"] = batch["bbox"]
-            # cur_video_param_and_pred[f"{frame_i:04d}_param"] = codedict
-            # cur_video_param_and_pred[f"{frame_i:04d}_pred"] = opdict
-            for k, v in codedict.items():
-                if k not in cur_video_param_dicts:
-                    cur_video_param_dicts[k] = []
-                if torch.is_tensor(v):
-                    v = v[0].detach().cpu().numpy()
-                cur_video_param_dicts[k].append(v)
+                save_name = f"{video_name}.mp4"
+                save_name = os.path.join(args.savefolder, "pixie_videos", save_name)
+                os.makedirs(os.path.dirname(save_name), exist_ok=True)
+                # print(f"Saving result video to {save_name}")
+                images_to_video(img_folder=cur_video_vis_folder, img_pose_fix="_vis.jpg", output_vid_file=save_name)
+                shutil.rmtree(cur_video_vis_folder)
 
-            for k, v in opdict.items():
-                if k not in cur_video_pred_dicts:
-                    cur_video_pred_dicts[k] = []
-                if torch.is_tensor(v):
-                    v = v[0].detach().cpu().numpy()
-                cur_video_pred_dicts[k].append(v)
+            shutil.rmtree(image_folder)
 
-        if args.saveVis:
-            save_name = f"{video_name}.mp4"
-            save_name = os.path.join(args.savefolder, "pixie_videos", save_name)
-            os.makedirs(os.path.dirname(save_name), exist_ok=True)
-            # print(f"Saving result video to {save_name}")
-            images_to_video(img_folder=cur_video_vis_folder, img_pose_fix="_vis.jpg", output_vid_file=save_name)
-            shutil.rmtree(cur_video_vis_folder)
+            for k, v in cur_video_param_dicts.items():
+                cur_video_param_and_pred[k] = np.stack(v, axis=0)
 
-        shutil.rmtree(image_folder)
+            for k, v in cur_video_pred_dicts.items():
+                cur_video_param_and_pred[k] = np.stack(v, axis=0)
 
-        for k, v in cur_video_param_dicts.items():
-            cur_video_param_and_pred[k] = np.stack(v, axis=0)
-
-        for k, v in cur_video_pred_dicts.items():
-            cur_video_param_and_pred[k] = np.stack(v, axis=0)
-
-        os.makedirs(os.path.join(args.savefolder, "pixie_outs"), exist_ok=True)
-        util.save_pkl(output_pkl_file, cur_video_param_and_pred)
+            os.makedirs(os.path.join(args.savefolder, "pixie_outs"), exist_ok=True)
+            util.save_pkl(output_pkl_file, cur_video_param_and_pred)
+        except:
+            print(f"Error in {video_name}")
+            continue
 
     print(f"Finished! Please check the results in {savefolder}")
 
