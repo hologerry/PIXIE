@@ -176,9 +176,9 @@ class PIXIE(object):
                 value:
                     image: [bz, 3, 224, 224], range [0,1]
                     image_hd(needed if key==body): a high res version of image, only for cropping parts from body image
-                    head_image: optinal, well-cropped head from body image
-                    left_hand_image: optinal, well-cropped left hand from body image
-                    right_hand_image: optinal, well-cropped right hand from body image
+                    head_image: optional, well-cropped head from body image
+                    left_hand_image: optional, well-cropped left hand from body image
+                    right_hand_image: optional, well-cropped right hand from body image
         Returns:
             param_dict: dict
                 key: image_type (body/head/hand)
@@ -448,7 +448,9 @@ class PIXIE(object):
                 euler_pose = converter._compute_euler_from_matrix(curr_pose)
                 for i, max_angle in enumerate([20, 70, 10]):
                     euler_pose_curr = euler_pose[:, i]
-                    valid_euler_pose_curr = torch.clamp(euler_pose_curr, min=-max_angle * np.pi / 180, max=max_angle * np.pi / 180)
+                    valid_euler_pose_curr = torch.clamp(
+                        euler_pose_curr, min=-max_angle * np.pi / 180, max=max_angle * np.pi / 180
+                    )
                     euler_pose_curr[euler_pose_curr != valid_euler_pose_curr] = 0.0
                 param_dict["body_pose"][:, pose_ind] = converter.batch_euler2matrix(euler_pose)
 
